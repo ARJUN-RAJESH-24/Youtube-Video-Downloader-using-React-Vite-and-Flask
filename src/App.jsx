@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import './App.css';
 
-const API_BASE_URL = 'http://localhost:5000/api'; // The URL of your new Python backend
+const API_BASE_URL = 'http://localhost:5000/api';
 
 const YoutubeDownloader = () => {
   const [videoUrl, setVideoUrl] = useState('');
   const [currentVideoData, setCurrentVideoData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('mp4');
   const [message, setMessage] = useState('');
@@ -48,11 +48,22 @@ const YoutubeDownloader = () => {
     </svg>
   );
 
-  const MessageModal = ({ text, onClose }) => {
+  const LoadingIcon = () => (
+    <svg viewBox="0 0 24 24" className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M21 12a9 9 0 11-6.219-8.56"/>
+    </svg>
+  );
+
+  const MessageModal = ({ text, type = 'info', onClose }) => {
     if (!text) return null;
+    
+    const bgColor = type === 'error' ? 'bg-red-900 border-red-500' : 
+                   type === 'success' ? 'bg-green-900 border-green-500' : 
+                   'bg-gray-900 border-gray-500';
+    
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 p-4">
-        <div className="bg-gray-900 text-white p-6 rounded-lg shadow-2xl max-w-sm w-full relative">
+        <div className={`${bgColor} border text-white p-6 rounded-lg shadow-2xl max-w-md w-full relative`}>
           <button
             onClick={onClose}
             className="absolute top-2 right-2 text-gray-400 hover:text-white transition-colors"
@@ -60,16 +71,10 @@ const YoutubeDownloader = () => {
           >
             <CloseIcon />
           </button>
-          <p className="text-lg text-center">{text}</p>
+          <p className="text-lg text-center pr-8">{text}</p>
         </div>
       </div>
     );
-  };
-
-  const extractVideoId = (url) => {
-    const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[7].length === 11) ? match[7] : null;
   };
 
   const fetchVideoInfo = async () => {
@@ -97,40 +102,105 @@ const YoutubeDownloader = () => {
         body: JSON.stringify({ url }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to fetch video information');
+        throw new Error(data.error || 'Failed to fetch video information');
       }
 
-      const videoData = await response.json();
-      setCurrentVideoData(videoData);
+      setCurrentVideoData(data);
+      setMessage('');
     } catch (err) {
-      setError(err.message);
+      console.error('Fetch error:', err);
+      setError(err.message || 'Network error occurred');
     } finally {
       setLoading(false);
     }
   };
 
-  const initiateDownload = (quality) => {
+  const initiateDownload = async (quality) => {
     if (!currentVideoData) return;
-    const format = activeTab;
-    const videoId = currentVideoData.id;
+    
+    setDownloading(true);
+    setMessage('');
+    setError(null);
 
-    // Trigger download by redirecting to the download endpoint
-    window.location.href = `${API_BASE_URL}/download-video?id=${videoId}&format=${format}&quality=${quality}`;
-    setMessage(`Your download for the ${quality} ${format} file should begin shortly.`);
+    const format = activeTab;
+    const downloadData = {
+      id: currentVideoData.id,
+      format: format,
+      quality: quality,
+      title: currentVideoData.title
+    };
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/download-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(downloadData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Download failed');
+      }
+
+      // Handle file download
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      
+      // Get filename from response headers or create one
+      const contentDisposition = response.headers.get('content-disposition');
+      let filename = `${currentVideoData.title}.${format}`;
+      
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
+      
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      setMessage(`Download completed successfully! Check your downloads folder for ${filename}`);
+    } catch (err) {
+      console.error('Download error:', err);
+      setError(err.message || 'Download failed');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !loading) {
       fetchVideoInfo();
     }
+  };
+
+  const clearData = () => {
+    setVideoUrl('');
+    setCurrentVideoData(null);
+    setError(null);
+    setMessage('');
   };
 
   return (
     <div className="bg-gray-950 min-h-screen text-white">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
-        <MessageModal text={message} onClose={() => setMessage('')} />
+        <MessageModal 
+          text={message} 
+          type={error ? 'error' : 'success'} 
+          onClose={() => {
+            setMessage('');
+            setError(null);
+          }} 
+        />
         
         {/* Header */}
         <header className="mb-10 text-center">
@@ -157,23 +227,34 @@ const YoutubeDownloader = () => {
                 value={videoUrl}
                 onChange={(e) => setVideoUrl(e.target.value)}
                 onKeyDown={handleKeyDown}
-                disabled={loading}
+                disabled={loading || downloading}
               />
               <button
                 onClick={fetchVideoInfo}
-                disabled={loading}
-                className="px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-all flex items-center justify-center gap-2"
+                disabled={loading || downloading || !videoUrl.trim()}
+                className="px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-all flex items-center justify-center gap-2 min-w-[140px]"
               >
-                <SearchIcon /> Fetch Video
+                {loading ? <LoadingIcon /> : <SearchIcon />}
+                {loading ? 'Fetching...' : 'Fetch Video'}
               </button>
             </div>
-            <div className="mt-4 text-sm text-gray-500">
-              <p>Example: https://www.youtube.com/watch?v=dQw4w9WgXcQ</p>
+            <div className="mt-4 flex justify-between items-center">
+              <div className="text-sm text-gray-500">
+                <p>Example: https://www.youtube.com/watch?v=dQw4w9WgXcQ</p>
+              </div>
+              {(currentVideoData || error) && (
+                <button
+                  onClick={clearData}
+                  className="text-sm text-gray-400 hover:text-white transition-colors"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           </div>
 
           {/* Results Section */}
-          {currentVideoData && !loading && !error && (
+          {currentVideoData && !loading && (
             <div className="max-w-3xl mx-auto">
               {/* Video Info */}
               <div className="bg-gray-900 rounded-xl p-6 shadow-lg mb-6">
@@ -190,11 +271,16 @@ const YoutubeDownloader = () => {
                   </div>
                   <div className="md:w-2/3">
                     <h2 className="text-xl font-bold mb-2">{currentVideoData.title}</h2>
-                    <div className="flex items-center text-gray-400 mb-4">
-                      <span className="mr-4">{currentVideoData.duration}</span>
-                      <span>{currentVideoData.views}</span>
+                    <div className="flex flex-wrap items-center text-gray-400 mb-4 gap-4">
+                      <span>⏱️ {currentVideoData.duration}</span>
+                      <span>👁️ {currentVideoData.views} views</span>
+                      {currentVideoData.uploader && (
+                        <span>📺 {currentVideoData.uploader}</span>
+                      )}
                     </div>
-                    <p className="text-gray-300 text-sm">{currentVideoData.description}</p>
+                    <p className="text-gray-300 text-sm line-clamp-3">
+                      {currentVideoData.description || 'No description available.'}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -205,11 +291,19 @@ const YoutubeDownloader = () => {
                   <DownloadIcon /> Download Options
                 </h3>
 
+                {downloading && (
+                  <div className="mb-4 p-4 bg-blue-900 border border-blue-500 rounded-lg text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+                    <p>Processing download... This may take a moment.</p>
+                  </div>
+                )}
+
                 {/* Tabs */}
                 <div className="flex border-b border-gray-700 mb-6">
                   <button
                     onClick={() => setActiveTab('mp4')}
-                    className={`px-4 py-2 font-medium transition-colors ${
+                    disabled={downloading}
+                    className={`px-4 py-2 font-medium transition-colors disabled:opacity-50 ${
                       activeTab === 'mp4' 
                         ? 'text-white border-b-2 border-red-600' 
                         : 'text-gray-400 hover:text-white'
@@ -219,7 +313,8 @@ const YoutubeDownloader = () => {
                   </button>
                   <button
                     onClick={() => setActiveTab('mp3')}
-                    className={`px-4 py-2 font-medium transition-colors ${
+                    disabled={downloading}
+                    className={`px-4 py-2 font-medium transition-colors disabled:opacity-50 ${
                       activeTab === 'mp3' 
                         ? 'text-white border-b-2 border-red-600' 
                         : 'text-gray-400 hover:text-white'
@@ -239,7 +334,8 @@ const YoutubeDownloader = () => {
                           <button
                             key={quality}
                             onClick={() => initiateDownload(quality)}
-                            className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-md text-sm font-medium transition-colors"
+                            disabled={downloading}
+                            className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-md text-sm font-medium transition-colors"
                           >
                             {quality}p
                           </button>
@@ -253,7 +349,8 @@ const YoutubeDownloader = () => {
                           <button
                             key={quality}
                             onClick={() => initiateDownload(quality)}
-                            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-md text-sm font-medium transition-colors"
+                            disabled={downloading}
+                            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-md text-sm font-medium transition-colors"
                           >
                             {quality}p
                           </button>
@@ -276,7 +373,8 @@ const YoutubeDownloader = () => {
                         <button
                           key={quality}
                           onClick={() => initiateDownload(quality)}
-                          className={`px-4 py-2 ${color} rounded-md text-sm font-medium transition-colors`}
+                          disabled={downloading}
+                          className={`px-4 py-2 ${color} disabled:bg-gray-600 disabled:cursor-not-allowed rounded-md text-sm font-medium transition-colors`}
                         >
                           {label}
                         </button>
@@ -284,6 +382,10 @@ const YoutubeDownloader = () => {
                     </div>
                   </div>
                 )}
+
+                <div className="text-xs text-gray-500 mt-4">
+                  <p>⚠️ Downloads may take longer for higher quality formats. Please be patient.</p>
+                </div>
               </div>
             </div>
           )}
@@ -307,12 +409,21 @@ const YoutubeDownloader = () => {
                   <AlertIcon />
                 </div>
                 <p className="text-lg mb-4">{error}</p>
-                <button
-                  onClick={fetchVideoInfo}
-                  className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition-all"
-                >
-                  Try Again
-                </button>
+                <div className="flex gap-4 justify-center">
+                  <button
+                    onClick={fetchVideoInfo}
+                    disabled={!videoUrl.trim()}
+                    className="px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-all"
+                  >
+                    Try Again
+                  </button>
+                  <button
+                    onClick={clearData}
+                    className="px-6 py-3 bg-gray-600 hover:bg-gray-700 rounded-lg font-semibold transition-all"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
             </div>
           )}
