@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YouTube Video Downloader</title>
+
+    <!-- Google Fonts - Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS CDN and custom configuration -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              youtube: '#dc2626', /* New color derived from red-600 */
+              dark: '#1f2937', /* New color derived from gray-900 */
+              darker: '#111827', /* New color derived from gray-950 */
+            }
+          }
+        }
+      }
+    </script>
+
+    <!-- Custom styles for the app -->
+    <style>
+      body {
+        font-family: 'Poppins', sans-serif;
+      }
+      .animate-spin {
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      .download-btn { transition: all 0.3s ease; }
+      .download-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2); }
+      .bg-gradient-youtube { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); }
+      .input-field:focus { box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2); }
+    </style>
+  </head>
+  <body>
+    <!-- The root element where your React app will be mounted -->
+    <div id="root"></div>
+    
+    <!-- The entry point script for your React application -->
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
